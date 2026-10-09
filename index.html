@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <!--
 =====================================================================
-  LOS DOS LOGOS
   App para Orejas Billar Club y Santo Cristo Hospedaje Rural.
   Un solo archivo: estructura (HTML), estilos (CSS) y lógica (JavaScript).
   Los logos van incrustados dentro del archivo.
@@ -99,10 +98,30 @@ input,textarea{font-family:inherit}
 
 /* ----- Pestañas del billar ----- */
 .tabs{display:flex;background:var(--azul2);position:sticky;top:62px;z-index:4}
+.tabs{overflow-x:auto}  /* si no caben, se deslizan de lado */
 .tabs button{
-  flex:1;background:none;border:none;color:#C9CEEA;padding:12px 4px;font-weight:600;
-  border-bottom:4px solid transparent;
+  flex:1;background:none;border:none;color:#C9CEEA;padding:12px 8px;font-weight:600;font-size:14px;
+  border-bottom:4px solid transparent;white-space:nowrap;
 }
+
+/* ----- Dashboard ----- */
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}       /* botones de periodo */
+.chips button{background:var(--azulclaro);color:var(--azul);border:none;border-radius:20px;padding:8px 12px;font-weight:600;font-size:14px}
+.chips button.activa{background:var(--azul);color:var(--blanco)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px}  /* tarjetas de números grandes */
+.kpi{background:var(--blanco);border-radius:14px;padding:12px}
+.kpi small{display:block;color:var(--suave);font-size:13px}
+.kpi b{font-family:'Barlow Condensed',sans-serif;font-size:26px}
+.kpi.ganancia{grid-column:1/-1;background:var(--azul);color:var(--blanco)}  /* la ganancia, grande y azul */
+.kpi.ganancia small{color:#C9CEEA}
+.kpi.ganancia b{font-size:34px;color:var(--amarillo)}
+.resta{color:#A01818}   /* valores que restan */
+.suma{color:#2F6B1A}    /* valores que suman */
+.barrita{height:6px;background:var(--amarillo);border-radius:3px;margin-top:4px} /* barra de "lo más vendido" */
+.aviso-caja{background:#FFF4D1;color:#7A5A00;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:8px}
+
+/* ----- Movimientos ----- */
+.campo select{padding:10px;border:1px solid var(--linea);border-radius:8px;background:var(--blanco);color:var(--texto)}
 .tabs button.activa{color:var(--blanco);border-bottom-color:var(--amarillo)}
 
 /* Contenido: ancho máximo y espacio abajo para la barra fija */
@@ -232,6 +251,8 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
   <nav class="tabs">
     <button data-tab="tPlanilla" class="activa" onclick="tab(this)">Planilla</button>
     <button data-tab="tHistorial" onclick="tab(this)">Historial</button>
+    <button data-tab="tDashboard" onclick="tab(this)">Dashboard</button>
+    <button data-tab="tMovimientos" onclick="tab(this)">Movimientos</button>
     <button data-tab="tLicores" onclick="tab(this)">Licores</button>
   </nav>
 
@@ -272,8 +293,10 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
           <label class="campo">Tiempos<input id="rTiempos" inputmode="numeric"></label>
           <label class="campo">Base<input id="rBase" inputmode="numeric"></label>
           <label class="campo">Compras<input id="rCompras" inputmode="numeric"></label>
-          <label class="campo">Pagos<input id="rPagos" inputmode="numeric"></label>
+          <label class="campo">Pagos (nómina)<input id="rPagos" inputmode="numeric"></label>
           <label class="campo">Gastos<input id="rGastos" inputmode="numeric"></label>
+          <!-- Plata que le consignan a Diana: sale de la caja pero NO es gasto -->
+          <label class="campo">Consignado a Diana<input id="rConsignado" inputmode="numeric"></label>
         </div>
         <label class="campo">Observaciones<textarea id="rObs" rows="2"></textarea></label>
 
@@ -283,6 +306,7 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
         <div class="cuenta"><span>Total egresos</span><b id="vEgresos">$0</b></div>
         <div class="cuenta"><span>Vales del turno (se fió, no entró plata)</span><b id="vVales">$0</b></div>
         <div class="cuenta"><span>Abonos del turno (entró plata)</span><b id="vAbonos">$0</b></div>
+        <div class="cuenta"><span>Consignado a Diana (salió de la caja)</span><b id="vConsignado">$0</b></div>
         <div class="cuenta grande"><span>Efectivo que debe haber</span><b id="vEfectivo">$0</b></div>
       </div>
       <p class="nota">El borrador se guarda solo en este celular mientras llenas. Se borra cuando guardas la planilla.</p>
@@ -305,6 +329,53 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
       <div class="bloque">
         <h3>Quién debe</h3>
         <div id="deudores"><p class="nota" style="margin:0">Toca "Ver turnos" para actualizar.</p></div>
+      </div>
+    </div>
+
+    <!-- ---------------- PESTAÑA DASHBOARD (cierres) ---------------- -->
+    <div id="tDashboard" class="oculto">
+      <div class="bloque">
+        <!-- Botones rápidos de periodo -->
+        <div class="chips" id="chipsPeriodo">
+          <button onclick="periodo('semana', this)">Esta semana</button>
+          <button onclick="periodo('quincena', this)">Esta quincena</button>
+          <button onclick="periodo('mes', this)">Este mes</button>
+          <button onclick="periodo('mesPasado', this)">Mes pasado</button>
+        </div>
+        <div class="dos">
+          <label class="campo">Desde<input id="dDesde" type="date"></label>
+          <label class="campo">Hasta<input id="dHasta" type="date"></label>
+        </div>
+        <button class="btn sec" onclick="calcularDashboard()">Calcular cierre</button>
+      </div>
+      <!-- Aquí el JavaScript dibuja el cierre -->
+      <div id="dashResultado"><p class="nota">Elige un periodo y toca "Calcular cierre".</p></div>
+    </div>
+
+    <!-- ---------------- PESTAÑA MOVIMIENTOS (lo que paga Diana) ---------------- -->
+    <div id="tMovimientos" class="oculto">
+      <div class="bloque">
+        <h3>Nuevo movimiento</h3>
+        <p class="nota" style="margin:0 0 10px">Lo que pagas tú desde tu cuenta (arriendo, servicios, mercancía…). Lo que ellas pagan con la plata del turno va en la planilla.</p>
+        <div class="dos">
+          <label class="campo">Fecha<input id="mFecha" type="date"></label>
+          <label class="campo">Tipo
+            <select id="mTipo">
+              <option value="gasto">Gasto que pagué</option>
+              <option value="ingreso">Otro ingreso a la cuenta</option>
+            </select>
+          </label>
+        </div>
+        <label class="campo">Categoría<input id="mCategoria" list="listaCatMov" placeholder="Arriendo, Servicios, Mercancía…"></label>
+        <datalist id="listaCatMov"></datalist>
+        <label class="campo">Concepto<input id="mConcepto" placeholder="Ej: arriendo octubre"></label>
+        <label class="campo">Valor<input id="mValor" inputmode="numeric"></label>
+        <button class="btn sec" onclick="guardarMovimiento()">Guardar movimiento</button>
+      </div>
+      <!-- Últimos movimientos guardados -->
+      <div class="bloque">
+        <h3>Últimos movimientos</h3>
+        <div id="movLista"></div>
       </div>
     </div>
 
@@ -347,7 +418,7 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
 // =====================================================================
 // LÓGICA DE LA APP (JavaScript)
 // Recuerda: aquí hay comillas invertidas (`). No las borres.
-// ================================================================
+// =====================================================================
 
 // ---------------------------------------------------------------------
 // 1. CONEXIÓN CON GOOGLE SHEETS (fija para todos los dispositivos)
@@ -372,6 +443,7 @@ let saldoAnterior = {};  // saldo del último turno por producto: { P001: 959, .
 let configLic = [];      // filas de Config_Licores
 let valesHist = [];      // todos los vales y abonos guardados (pestaña Vales)
 let valesTurno = [];     // vales y abonos que se están anotando en ESTE turno
+let movimientos = [];    // lo que paga Diana desde su cuenta (pestaña Movimientos)
 
 // ---------------------------------------------------------------------
 // 3. HERRAMIENTAS PEQUEÑAS
@@ -434,7 +506,7 @@ function mostrar(id) {
 // Cambia de pestaña dentro del billar
 function tab(boton) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('activa', b === boton));
-  ['tPlanilla', 'tHistorial', 'tLicores'].forEach(t => $(t).classList.toggle('oculto', t !== boton.dataset.tab));
+  ['tPlanilla', 'tHistorial', 'tDashboard', 'tMovimientos', 'tLicores'].forEach(t => $(t).classList.toggle('oculto', t !== boton.dataset.tab));
   $('barraPlanilla').classList.toggle('oculto', boton.dataset.tab !== 'tPlanilla');
 }
 
@@ -513,15 +585,17 @@ async function abrirBillar() {
   cargando(true);
   try {
     // Todo al mismo tiempo (más rápido). Si la pestaña Vales no existe, sigue sin vales.
-    const [prods, res, conf, vales] = await Promise.all([
+    const [prods, res, conf, vales, movs] = await Promise.all([
       apiGet('productos'), apiGet('resumenes'), apiGet('config'),
-      apiGet('vales').catch(() => { toast('No se pudieron cargar los vales (¿existe la pestaña Vales?)', 6); return []; })
+      apiGet('vales').catch(() => { toast('No se pudieron cargar los vales (¿existe la pestaña Vales?)', 6); return []; }),
+      apiGet('movimientos').catch(() => { toast('No se pudieron cargar los movimientos (¿existe la pestaña Movimientos?)', 6); return []; })
     ]);
     todosProductos = prods;
     productos = prods.filter(p => String(p.activo).toUpperCase().trim() !== 'NO'); // solo activos
     resumenes = normalizarFechas(res);
     configLic = conf;
     valesHist = normalizarFechas(vales);
+    movimientos = normalizarFechas(movs);
 
     await cargarSaldoAnterior(); // existencia = saldo del último turno
     pintarTurnos();              // sugerencias de nombres + fecha de hoy
@@ -530,6 +604,9 @@ async function abrirBillar() {
     restaurarBorrador();         // recupera lo que estaba a medio llenar
     pintarVales();               // vales y abonos del turno
     pintarLicores();             // pestaña Licores
+    pintarMovimientos();         // pestaña Movimientos
+    $('mFecha').value = hoy();
+    periodo('mes', document.querySelector('#chipsPeriodo button:nth-child(3)')); // dashboard: este mes
 
     // Historial: por defecto del día 1 del mes hasta hoy
     $('hDesde').value = hoy().slice(0, 8) + '01';
@@ -764,8 +841,10 @@ function calcularResumen() {
 
   const total = ventas + entero($('rTiempos').value) + entero($('rBase').value);
   const egresos = entero($('rCompras').value) + entero($('rPagos').value) + entero($('rGastos').value);
-  // Efectivo = lo que entró − lo que salió − lo que se fió + lo que abonaron
-  const efectivo = total - egresos - vales + abonos;
+  // Consignado a Diana: sale de la caja pero no es gasto
+  const consignado = entero($('rConsignado').value);
+  // Efectivo = lo que entró − lo que salió − lo que se fió + lo que abonaron − lo consignado
+  const efectivo = total - egresos - vales + abonos - consignado;
 
   $('vVentas').textContent = pesos(ventas);
   $('barraVentas').textContent = pesos(ventas);
@@ -773,9 +852,10 @@ function calcularResumen() {
   $('vEgresos').textContent = pesos(egresos);
   $('vVales').textContent = pesos(vales);
   $('vAbonos').textContent = pesos(abonos);
+  $('vConsignado').textContent = pesos(consignado);
   $('vEfectivo').textContent = pesos(efectivo);
 
-  return { ventas, total, egresos, vales, abonos, efectivo };
+  return { ventas, total, egresos, vales, abonos, consignado, efectivo };
 }
 
 // Cada vez que se escribe algo en la planilla: recalcula y guarda borrador
@@ -794,7 +874,7 @@ document.addEventListener('input', e => {
 // =====================================================================
 // 9. BORRADOR LOCAL (no perder lo escrito si se cierra la app)
 // =====================================================================
-const CAMPOS_RES = ['rTiempos', 'rBase', 'rCompras', 'rPagos', 'rGastos', 'rObs', 'fFecha', 'fTurno'];
+const CAMPOS_RES = ['rTiempos', 'rBase', 'rCompras', 'rPagos', 'rGastos', 'rConsignado', 'rObs', 'fFecha', 'fTurno'];
 
 function guardarBorrador() {
   const b = { res: {}, filas: {}, vales: valesTurno };
@@ -875,6 +955,7 @@ async function guardarPlanilla() {
     total_egresos: c.egresos,
     vales: c.vales,
     abonos: c.abonos,
+    consignado: c.consignado,
     efectivo_esperado: c.efectivo,
     observaciones: $('rObs').value.trim()
   };
@@ -951,6 +1032,262 @@ async function cargarHistorial() {
       : '<p class="nota" style="margin:0">Nadie debe.</p>';
   } catch (e) {
     toast('Error: ' + e.message, 6);
+  } finally {
+    cargando(false);
+  }
+}
+
+// =====================================================================
+// 11b. DASHBOARD: CIERRES SEMANALES, QUINCENALES Y MENSUALES
+// =====================================================================
+
+// Llena las fechas según el botón: semana (desde el lunes), quincena (1–15 o 16–fin), mes, mes pasado
+function periodo(tipo, boton) {
+  document.querySelectorAll('#chipsPeriodo button').forEach(b => b.classList.toggle('activa', b === boton));
+  const [a, m, d] = hoy().split('-').map(Number);
+  // Arma una fecha AAAA-MM-DD; Date.UTC acomoda solo los meses y días que se pasan
+  const f = (y, mo, da) => new Date(Date.UTC(y, mo - 1, da)).toISOString().slice(0, 10);
+  let desde, hasta = hoy();
+  if (tipo === 'semana') {
+    const diaSemana = new Date(Date.UTC(a, m - 1, d)).getUTCDay(); // 0 domingo … 6 sábado
+    desde = f(a, m, d - ((diaSemana + 6) % 7));                   // retrocede hasta el lunes
+  } else if (tipo === 'quincena') {
+    desde = f(a, m, d <= 15 ? 1 : 16);
+  } else if (tipo === 'mes') {
+    desde = f(a, m, 1);
+  } else if (tipo === 'mesPasado') {
+    desde = f(a, m - 1, 1);
+    hasta = f(a, m, 0); // día 0 del mes actual = último día del mes pasado
+  }
+  $('dDesde').value = desde;
+  $('dHasta').value = hasta;
+}
+
+// Una línea de cuenta: texto a la izquierda, valor a la derecha (signo: '+', '-' o '')
+const linea = (texto, valor, signo = '', clase = '') =>
+  `<div class="cuenta ${clase}"><span>${texto}</span><b class="${signo === '-' ? 'resta' : signo === '+' ? 'suma' : ''}">${signo === '-' ? '− ' : ''}${pesos(valor)}</b></div>`;
+
+// Calcula y dibuja el cierre del periodo
+async function calcularDashboard() {
+  const desde = $('dDesde').value, hasta = $('dHasta').value;
+  if (!desde || !hasta) return toast('Elige las dos fechas.');
+  cargando(true);
+  try {
+    // Trae todo lo necesario al mismo tiempo; el detalle solo del periodo
+    const [res, vales, movs, det] = await Promise.all([
+      apiGet('resumenes'),
+      apiGet('vales').catch(() => valesHist),
+      apiGet('movimientos').catch(() => movimientos),
+      apiGet('detalle', { desde, hasta })
+    ]);
+    resumenes = normalizarFechas(res);
+    valesHist = normalizarFechas(vales);
+    movimientos = normalizarFechas(movs);
+
+    // Solo lo que cae dentro del periodo
+    const enRango = x => x.fecha >= desde && x.fecha <= hasta;
+    const turnos = resumenes.filter(enRango).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const detalle = normalizarFechas(det).filter(enRango);
+    const movsP = movimientos.filter(enRango);
+    const valesP = valesHist.filter(enRango);
+
+    // Suma una columna de una lista
+    const suma = (lista, campo) => lista.reduce((s, x) => s + entero(x[campo]), 0);
+    const sumaSi = (lista, cond) => lista.filter(cond).reduce((s, x) => s + entero(x.valor), 0);
+
+    // ---- Números de las planillas ----
+    const ventas = suma(turnos, 'total_ventas');
+    const tiempos = suma(turnos, 'tiempos');
+    const compras = suma(turnos, 'compras');
+    const nomina = suma(turnos, 'pagos');      // Pagos = nómina
+    const gastosTurno = suma(turnos, 'gastos');
+    const consignado = suma(turnos, 'consignado');
+
+    // ---- Movimientos de la cuenta de Diana ----
+    const gastosCuenta = sumaSi(movsP, m => sinTildes(m.tipo) === 'gasto');
+    const otrosIngresos = sumaSi(movsP, m => sinTildes(m.tipo) === 'ingreso');
+
+    // ---- Vales del periodo ----
+    const fiado = sumaSi(valesP, v => sinTildes(v.tipo) !== 'abono');
+    const abonado = sumaSi(valesP, v => sinTildes(v.tipo) === 'abono');
+    const ds = deudores();                                   // quién debe (de siempre)
+    const porCobrar = ds.reduce((s, x) => s + Math.max(0, x.debe), 0);
+
+    // ---- Costo de lo vendido, lo más vendido y ventas por categoría ----
+    const prodPorId = {};
+    todosProductos.forEach(p => prodPorId[String(p.id)] = p);
+    let costoVendido = 0;
+    const sinCosto = new Set(), porProd = {}, porCat = {};
+    detalle.forEach(d => {
+      const vend = Number(d.vendidos) || 0;
+      if (vend <= 0) return;
+      const p = prodPorId[String(d.producto_id)];
+      const costo = p ? entero(p.costo) : 0;
+      if (!costo) sinCosto.add(p ? p.nombre : d.producto_id); // productos sin costo: se avisa
+      costoVendido += vend * costo;
+
+      const nombre = p ? `${p.nombre} (${p.unidad})` : String(d.producto_id);
+      porProd[nombre] = (porProd[nombre] || 0) + entero(d.valor);
+
+      const cat = p ? String(p.categoria).trim() : 'Otros';
+      const k = claveCat(cat);
+      if (!porCat[k]) porCat[k] = { titulo: cat, valor: 0 };
+      porCat[k].valor += entero(d.valor);
+    });
+
+    // ---- Ganancia ----
+    const ingresos = ventas + tiempos;
+    const neta = ingresos - costoVendido - nomina - gastosTurno - gastosCuenta;
+    const pct = ingresos ? (neta / ingresos * 100) : 0;
+    const margenProd = ventas ? ((ventas - costoVendido) / ventas * 100) : 0;
+
+    // ---- ¿Dónde está la plata? ----
+    const ultimo = turnos[turnos.length - 1];               // último turno del periodo
+    const caja = ultimo ? Number(ultimo.efectivo_esperado) || 0 : 0;
+    const cuenta = consignado + otrosIngresos - gastosCuenta;
+
+    // ================= Dibujar =================
+    if (!turnos.length && !movsP.length) {
+      $('dashResultado').innerHTML = '<p class="nota">No hay turnos ni movimientos en esas fechas.</p>';
+      return;
+    }
+
+    let html = `
+      <div class="kpis">
+        <div class="kpi ganancia"><small>Ganancia del periodo (${pct.toFixed(1)}%)</small><b>${pesos(neta)}</b></div>
+        <div class="kpi"><small>Ventas</small><b>${pesos(ventas)}</b></div>
+        <div class="kpi"><small>Tiempos</small><b>${pesos(tiempos)}</b></div>
+        <div class="kpi"><small>Turnos</small><b>${turnos.length}</b></div>
+        <div class="kpi"><small>Por cobrar (vales)</small><b>${pesos(porCobrar)}</b></div>
+      </div>`;
+
+    // Estado de resultados: cuánto ganamos
+    html += `<div class="bloque"><h3>¿Cuánto ganamos?</h3>
+      ${linea('Ventas de productos', ventas, '+')}
+      ${linea('Tiempos', tiempos, '+')}
+      ${linea('Total ingresos', ingresos)}
+      ${linea('Costo de lo vendido', costoVendido, '-')}
+      ${linea('Nómina (pagos)', nomina, '-')}
+      ${linea('Gastos de la planilla', gastosTurno, '-')}
+      ${linea('Gastos que pagaste tú', gastosCuenta, '-')}
+      ${linea(`Ganancia (${pct.toFixed(1)}%)`, neta, '', 'grande')}
+      <p class="nota" style="margin:6px 0 0">Margen de los productos: ${margenProd.toFixed(1)}% (lo que queda de cada venta después del costo).</p>
+      <p class="nota" style="margin:6px 0 0">Compras de mercancía en el periodo: ${pesos(compras)}. No se restan aparte porque ya están dentro del costo de lo vendido.</p>
+      ${sinCosto.size ? `<div class="aviso-caja">Estos productos se vendieron pero no tienen costo en el Sheet, así que la ganancia sale más alta de lo real: ${esc([...sinCosto].slice(0, 8).join(', '))}${sinCosto.size > 8 ? '…' : ''}</div>` : ''}
+    </div>`;
+
+    // Dónde está la plata
+    html += `<div class="bloque"><h3>¿Dónde está la plata?</h3>
+      ${linea(`Efectivo en caja${ultimo ? ' (turno ' + esc(ultimo.fecha) + ')' : ''}`, caja)}
+      ${linea('Consignado a tu cuenta', consignado, '+')}
+      ${linea('Otros ingresos a tu cuenta', otrosIngresos, '+')}
+      ${linea('Pagado desde tu cuenta', gastosCuenta, '-')}
+      ${linea('Queda en tu cuenta (del periodo)', cuenta, '', 'grande')}
+      ${linea('Por cobrar en vales (total)', porCobrar)}
+    </div>`;
+
+    // Vales
+    html += `<div class="bloque"><h3>Vales</h3>
+      ${linea('Fiado en el periodo', fiado, '-')}
+      ${linea('Abonado en el periodo', abonado, '+')}
+      ${ds.length ? ds.map(d => `<div class="hist"><span>${esc(d.nombre)}</span><b>${pesos(d.debe)}</b></div>`).join('') : '<p class="nota" style="margin:6px 0 0">Nadie debe.</p>'}
+    </div>`;
+
+    // Lo más vendido (top 10, con barrita proporcional)
+    const top = Object.entries(porProd).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    if (top.length) {
+      const max = top[0][1] || 1;
+      html += `<div class="bloque"><h3>Lo más vendido</h3>${top.map(([n, v]) => `
+        <div style="margin-bottom:8px"><div class="cuenta" style="border:none;padding:0"><span>${esc(n)}</span><b>${pesos(v)}</b></div>
+        <div class="barrita" style="width:${Math.max(3, v / max * 100)}%"></div></div>`).join('')}</div>`;
+    }
+
+    // Ventas por categoría
+    const cats = Object.values(porCat).sort((a, b) => b.valor - a.valor);
+    if (cats.length) {
+      html += `<div class="bloque"><h3>Ventas por categoría</h3>${cats.map(c => linea(esc(c.titulo), c.valor)).join('')}</div>`;
+    }
+
+    // Gastos que pagó Diana, por categoría
+    const gCat = {};
+    movsP.filter(m => sinTildes(m.tipo) === 'gasto').forEach(m => {
+      const k = String(m.categoria || 'Otros').trim();
+      gCat[k] = (gCat[k] || 0) + entero(m.valor);
+    });
+    if (Object.keys(gCat).length) {
+      html += `<div class="bloque"><h3>Lo que pagaste tú</h3>${Object.entries(gCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => linea(esc(k), v)).join('')}</div>`;
+    }
+
+    $('dashResultado').innerHTML = html;
+  } catch (e) {
+    toast('Error: ' + e.message, 6);
+  } finally {
+    cargando(false);
+  }
+}
+
+// =====================================================================
+// 11c. MOVIMIENTOS: LO QUE PAGA O RECIBE DIANA EN SU CUENTA
+// =====================================================================
+
+// Categorías sugeridas (más las que ya se hayan usado)
+const CATEGORIAS_MOV = ['Arriendo', 'Servicios', 'Mercancía', 'Nómina', 'Mantenimiento', 'Impuestos', 'Otro'];
+
+// Dibuja los últimos 30 movimientos, del más nuevo al más viejo
+function pintarMovimientos() {
+  const usadas = movimientos.map(m => String(m.categoria || '').trim()).filter(Boolean);
+  $('listaCatMov').innerHTML = [...new Set([...CATEGORIAS_MOV, ...usadas])].map(c => `<option value="${esc(c)}">`).join('');
+
+  const lista = [...movimientos].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 30);
+  $('movLista').innerHTML = lista.length ? lista.map(m => `
+    <div class="hist">
+      <div>${esc(m.categoria)}: ${esc(m.concepto)}<small>${esc(m.fecha)}</small></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <b class="${sinTildes(m.tipo) === 'gasto' ? 'resta' : 'suma'}">${sinTildes(m.tipo) === 'gasto' ? '− ' : '+ '}${pesos(entero(m.valor))}</b>
+        <button class="quitar" onclick="borrarMovimiento('${esc(m.id)}')" aria-label="Borrar">×</button>
+      </div>
+    </div>`).join('')
+    : '<p class="nota" style="margin:0">Todavía no hay movimientos.</p>';
+}
+
+// Guarda un movimiento nuevo en el Sheet
+async function guardarMovimiento() {
+  const mov = {
+    id: 'M' + Date.now(),                 // código único (fecha y hora en milisegundos)
+    fecha: $('mFecha').value,
+    tipo: $('mTipo').value,
+    categoria: $('mCategoria').value.trim(),
+    concepto: $('mConcepto').value.trim(),
+    valor: entero($('mValor').value)
+  };
+  if (!mov.fecha || !mov.categoria || !mov.valor) return toast('Falta la fecha, la categoría o el valor.');
+  cargando(true);
+  try {
+    await apiPost({ accion: 'guardarMovimiento', movimiento: mov });
+    movimientos.push(mov);
+    // Limpia el formulario (deja la fecha y el tipo para anotar varios seguidos)
+    $('mCategoria').value = ''; $('mConcepto').value = ''; $('mValor').value = '';
+    pintarMovimientos();
+    toast('Movimiento guardado.');
+  } catch (e) {
+    toast('No se guardó: ' + e.message, 6);
+  } finally {
+    cargando(false);
+  }
+}
+
+// Borra un movimiento (pregunta antes)
+async function borrarMovimiento(id) {
+  const m = movimientos.find(x => String(x.id) === id);
+  if (!m || !confirm(`¿Borrar "${m.concepto || m.categoria}" por ${pesos(entero(m.valor))}?`)) return;
+  cargando(true);
+  try {
+    await apiPost({ accion: 'borrarMovimiento', id });
+    movimientos = movimientos.filter(x => String(x.id) !== id);
+    pintarMovimientos();
+    toast('Movimiento borrado.');
+  } catch (e) {
+    toast('No se borró: ' + e.message, 6);
   } finally {
     cargando(false);
   }
