@@ -301,13 +301,16 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
         <h3>Cierre del turno</h3>
         <div class="dos">
           <label class="campo">Tiempos<input id="rTiempos" inputmode="numeric"></label>
-          <label class="campo">Base<input id="rBase" inputmode="numeric"></label>
+          <!-- Base: solo cuando entra plata nueva a la caja (ej. el primer día). Los demás días va vacía. -->
+          <label class="campo">Base (solo si entra plata nueva)<input id="rBase" inputmode="numeric"></label>
           <label class="campo">Compras<input id="rCompras" inputmode="numeric"></label>
           <label class="campo">Pagos (nómina)<input id="rPagos" inputmode="numeric"></label>
           <label class="campo">Gastos<input id="rGastos" inputmode="numeric"></label>
           <!-- Plata que le consignan a Diana: sale de la caja pero NO es gasto -->
           <label class="campo">Consignado a Diana<input id="rConsignado" inputmode="numeric"></label>
         </div>
+        <!-- Dice de dónde salió la base (caja acumulada) -->
+        <p id="notaBase" class="nota" style="margin:0 0 10px">El sencillo fijo de la caja no se anota en ningún lado.</p>
         <label class="campo">Observaciones<textarea id="rObs" rows="2"></textarea></label>
 
         <!-- Cuentas que hace la app sola -->
@@ -317,7 +320,9 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
         <div class="cuenta"><span>Vales del turno (se fió, no entró plata)</span><b id="vVales">$0</b></div>
         <div class="cuenta"><span>Abonos del turno (entró plata)</span><b id="vAbonos">$0</b></div>
         <div class="cuenta"><span>Consignado a Diana (salió de la caja)</span><b id="vConsignado">$0</b></div>
-        <div class="cuenta grande"><span>Efectivo que debe haber</span><b id="vEfectivo">$0</b></div>
+        <div class="cuenta grande"><span>Efectivo que deja este turno</span><b id="vEfectivo">$0</b></div>
+        <!-- Lo acumulado de los turnos anteriores + este turno = lo que debe haber en caja (sin el sencillo) -->
+        <div class="cuenta grande"><span>Plata acumulada en caja</span><b id="vCaja">$0</b></div>
       </div>
       <p class="nota">El borrador se guarda solo en este celular mientras llenas. Se borra cuando guardas la planilla.</p>
     </div>
@@ -453,7 +458,7 @@ main{max-width:720px;margin:0 auto;padding-bottom:110px}
 // URL del Apps Script. Si algún día cambia, se cambia SOLO aquí.
 const URL_API = 'https://script.google.com/macros/s/AKfycbxHzKqX5a8M4Mxl_5qvMJhnXPhFhcSbHYtQxENP4k2AQitvq_XFSGAvHRkQv9vV9PFvmw/exec';
 // Clave: EXACTAMENTE la misma de la línea CLAVE del Apps Script, entre comillas simples.
-const CLAVE = '2610';
+const CLAVE = 'PON_AQUI_TU_CLAVE';
 
 // Categorías que se dividen en subtítulos según la unidad.
 // Ejemplo: "cigarrillo" → "Cigarrillo por medio" y "Cigarrillo por unidad".
@@ -672,6 +677,8 @@ function pintarTurnos() {
   const nombres = [...new Set(resumenes.map(r => r.turno).filter(Boolean))];
   $('listaTurnos').innerHTML = nombres.map(n => `<option value="${esc(n)}">`).join('');
   if (!$('fFecha').value) $('fFecha').value = hoy();
+
+  calcularResumen();
 }
 
 // =====================================================================
@@ -960,6 +967,9 @@ function calcularResumen() {
   $('vAbonos').textContent = pesos(abonos);
   $('vConsignado').textContent = pesos(consignado);
   $('vEfectivo').textContent = pesos(efectivo);
+  // Caja acumulada: turnos anteriores (sin contar esta misma planilla si se está corrigiendo) + este turno
+  const idActual = $('fFecha').value + '-' + $('fTurno').value.trim().replace(/\s+/g, '_');
+  $('vCaja').textContent = pesos(plataCaja('', idActual).valor + efectivo);
 
   return { ventas, total, egresos, vales, abonos, consignado, efectivo };
 }
@@ -1151,9 +1161,9 @@ async function cargarHistorial() {
       let tv = 0, te = 0; // totales del periodo
       let html = lista.map(r => {
         tv += entero(r.total_ventas);
-        te += Number(r.efectivo_esperado) || 0;
+        te += efectivoTurno(r);
         return `<div class="hist"><div>${esc(r.fecha)}<small>${esc(r.turno)}</small></div>
-          <div style="text-align:right">${pesos(entero(r.total_ventas))}<small>Efectivo ${pesos(Number(r.efectivo_esperado) || 0)}</small></div></div>`;
+          <div style="text-align:right">${pesos(entero(r.total_ventas))}<small>Efectivo ${pesos(efectivoTurno(r))}</small></div></div>`;
       }).join('');
       html += `<div class="cuenta grande"><span>Ventas del periodo</span><b>${pesos(tv)}</b></div>
                <div class="cuenta"><span>Efectivo esperado del periodo</span><b>${pesos(te)}</b></div>`;
@@ -1197,6 +1207,12 @@ function periodo(tipo, boton) {
   $('dDesde').value = desde;
   $('dHasta').value = hasta;
 }
+
+// Día anterior a una fecha AAAA-MM-DD (para sumar la caja "antes del periodo")
+const prevDia = f => {
+  const [a, m, d] = f.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d - 1)).toISOString().slice(0, 10);
+};
 
 // Una línea de cuenta: texto a la izquierda, valor a la derecha (signo: '+', '-' o '')
 const linea = (texto, valor, signo = '', clase = '') =>
@@ -1276,10 +1292,19 @@ async function calcularDashboard() {
     const pct = ingresos ? (neta / ingresos * 100) : 0;
     const margenProd = ventas ? ((ventas - costoVendido) / ventas * 100) : 0;
 
-    // ---- ¿Dónde está la plata? ----
+    // ---- Cuentas de ellas (la caja) ----
+    const base = suma(turnos, 'base');                      // plata nueva que entró a la caja
+    const valesTurnos = suma(turnos, 'vales');              // fiado (según las planillas)
+    const abonosTurnos = suma(turnos, 'abonos');            // abonos (según las planillas)
+    const cajaInicio = plataCaja(prevDia(desde)).valor;     // lo que tenían antes del periodo
+    const cajaFin = cajaInicio + turnos.reduce((s, r) => s + efectivoTurno(r), 0);
     const ultimo = turnos[turnos.length - 1];               // último turno del periodo
-    const caja = ultimo ? Number(ultimo.efectivo_esperado) || 0 : 0;
-    const cuenta = consignado + otrosIngresos - gastosCuenta;
+
+    // Saldos de inventario al cierre del periodo (del último turno)
+    const saldosFin = ultimo ? detalle.filter(d => d.planilla_id === ultimo.planilla_id && d.saldo !== '') : [];
+
+    // ---- Mis cuentas (la cuenta de Diana) al final del periodo ----
+    const cta = plataCuenta(hasta);
 
     // ================= Dibujar =================
     if (!turnos.length && !movsP.length) {
@@ -1290,37 +1315,56 @@ async function calcularDashboard() {
     let html = `
       <div class="kpis">
         <div class="kpi ganancia"><small>Ganancia del periodo (${pct.toFixed(1)}%)</small><b>${pesos(neta)}</b></div>
+        <div class="kpi"><small>Deben tener ellas</small><b>${pesos(cajaFin)}</b></div>
+        <div class="kpi"><small>Tienes tú</small><b>${pesos(cta.total)}</b></div>
         <div class="kpi"><small>Ventas</small><b>${pesos(ventas)}</b></div>
-        <div class="kpi"><small>Tiempos</small><b>${pesos(tiempos)}</b></div>
-        <div class="kpi"><small>Turnos</small><b>${turnos.length}</b></div>
         <div class="kpi"><small>Por cobrar (vales)</small><b>${pesos(porCobrar)}</b></div>
       </div>`;
 
-    // Estado de resultados: cuánto ganamos
-    html += `<div class="bloque"><h3>¿Cuánto ganamos?</h3>
+    // 1. CUENTAS DE ELLAS: cómo se cuadra la caja
+    html += `<div class="bloque"><h3>1. Cuentas de ellas (caja)</h3>
+      ${linea('Tenían al empezar el periodo', cajaInicio)}
+      ${linea('Base nueva (plata que entró a la caja)', base, '+')}
+      ${linea('Ventas', ventas, '+')}
+      ${linea('Tiempos', tiempos, '+')}
+      ${linea('Abonos de vales', abonosTurnos, '+')}
+      ${linea('Vales fiados', valesTurnos, '-')}
+      ${linea('Compras', compras, '-')}
+      ${linea('Nómina (pagos)', nomina, '-')}
+      ${linea('Gastos', gastosTurno, '-')}
+      ${linea('Consignado a ti', consignado, '-')}
+      ${linea(`Deben tener en efectivo${ultimo ? ' (al ' + esc(ultimo.fecha) + ')' : ''}`, cajaFin, '', 'grande')}
+      <p class="nota" style="margin:6px 0 0">Sin contar el sencillo fijo de la caja.</p>
+      ${saldosFin.length ? `
+      <details class="grupo" style="margin:12px 0 0">
+        <summary><span class="gtit" style="text-transform:none">Saldos de inventario${ultimo ? ' (' + esc(ultimo.fecha) + ')' : ''}</span></summary>
+        ${saldosFin.map(d => `<div class="cuenta" style="padding:8px 14px"><span>${esc(nombreProd(d.producto_id))}</span><b>${entero(d.saldo)}</b></div>`).join('')}
+      </details>` : ''}
+    </div>`;
+
+    // 2. MIS CUENTAS: la cuenta de Diana
+    html += `<div class="bloque"><h3>2. Mis cuentas</h3>
+      ${cta.base ? linea(`Saldo inicial (${esc(cta.base.fecha)})`, cta.inicial) : '<p class="nota" style="margin:0 0 8px">Aún no hay saldo inicial (se agrega en Movimientos).</p>'}
+      ${linea('Consignado por ellas', cta.consignado, '+')}
+      ${linea('Otros ingresos', cta.ingresos, '+')}
+      ${linea('Lo que pagaste tú', cta.gastos, '-')}
+      ${linea(`Tienes en tu cuenta (al ${esc(hasta)})`, cta.total, '', 'grande')}
+    </div>`;
+
+    // 3. GANANCIA DEL BILLAR: todo junto, sin importar quién pagó
+    html += `<div class="bloque"><h3>3. Ganancia del billar</h3>
       ${linea('Ventas de productos', ventas, '+')}
       ${linea('Tiempos', tiempos, '+')}
       ${linea('Total ingresos', ingresos)}
       ${linea('Costo de lo vendido', costoVendido, '-')}
       ${linea('Nómina (pagos)', nomina, '-')}
-      ${linea('Gastos de la planilla', gastosTurno, '-')}
+      ${linea('Gastos de ellas', gastosTurno, '-')}
       ${linea('Gastos que pagaste tú', gastosCuenta, '-')}
       ${linea(`Ganancia (${pct.toFixed(1)}%)`, neta, '', 'grande')}
+      <p class="nota" style="margin:6px 0 0">Aquí no entra la base: no es ganancia, es plata que ya estaba.</p>
       <p class="nota" style="margin:6px 0 0">Margen de los productos: ${margenProd.toFixed(1)}% (lo que queda de cada venta después del costo).</p>
-      <p class="nota" style="margin:6px 0 0">Compras de mercancía en el periodo: ${pesos(compras)}. No se restan aparte porque ya están dentro del costo de lo vendido.</p>
+      <p class="nota" style="margin:6px 0 0">Las compras (${pesos(compras)}) no se restan aquí porque ya están dentro del costo de lo vendido.</p>
       ${sinCosto.size ? `<div class="aviso-caja">Estos productos se vendieron pero no tienen costo en el Sheet, así que la ganancia sale más alta de lo real: ${esc([...sinCosto].slice(0, 8).join(', '))}${sinCosto.size > 8 ? '…' : ''}</div>` : ''}
-    </div>`;
-
-    // Dónde está la plata
-    html += `<div class="bloque"><h3>¿Dónde está la plata?</h3>
-      ${linea(`Efectivo en caja${ultimo ? ' (turno ' + esc(ultimo.fecha) + ')' : ''}`, caja)}
-      ${linea('Consignado a tu cuenta', consignado, '+')}
-      ${linea('Otros ingresos a tu cuenta', otrosIngresos, '+')}
-      ${linea('Pagado desde tu cuenta', gastosCuenta, '-')}
-      ${linea('Queda en tu cuenta (del periodo)', cuenta, '', 'grande')}
-      ${linea('Por cobrar en vales (total)', porCobrar)}
-      ${linea('Tienes hoy en tu cuenta', plataCuenta().total, '', 'grande')}
-      ${linea('Deben tener ellas hoy en caja', plataCaja().valor, '', 'grande')}
     </div>`;
 
     // Vales
@@ -1370,26 +1414,42 @@ async function calcularDashboard() {
 // Categorías sugeridas (más las que ya se hayan usado)
 const CATEGORIAS_MOV = ['Arriendo', 'Servicios', 'Mercancía', 'Nómina', 'Mantenimiento', 'Impuestos', 'Otro'];
 
-// Cuánta plata hay en la cuenta de Diana HOY.
-// Arranca en el último "saldo inicial" y desde esa fecha suma lo consignado
+// Cuánta plata hay en la cuenta de Diana (hoy, o hasta una fecha).
+// Arranca en el último "saldo inicial" (hasta esa fecha) y desde ahí suma lo consignado
 // por ellas y otros ingresos, y resta lo que Diana pagó.
-function plataCuenta() {
-  const saldos = movimientos.filter(m => sinTildes(m.tipo) === 'saldo').sort((a, b) => a.fecha.localeCompare(b.fecha));
+function plataCuenta(hasta = '') {
+  const antes = x => !hasta || x.fecha <= hasta;
+  const saldos = movimientos.filter(m => sinTildes(m.tipo) === 'saldo' && antes(m)).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const base = saldos[saldos.length - 1];           // el saldo inicial más reciente
   const desde = base ? base.fecha : '';             // sin saldo inicial: cuenta todo
+  const enRango = x => x.fecha >= desde && antes(x);
   const inicial = base ? entero(base.valor) : 0;
-  const consignado = resumenes.filter(r => r.fecha >= desde).reduce((s, r) => s + entero(r.consignado), 0);
-  const ingresos = movimientos.filter(m => sinTildes(m.tipo) === 'ingreso' && m.fecha >= desde).reduce((s, m) => s + entero(m.valor), 0);
-  const gastos = movimientos.filter(m => sinTildes(m.tipo) === 'gasto' && m.fecha >= desde).reduce((s, m) => s + entero(m.valor), 0);
+  const consignado = resumenes.filter(enRango).reduce((s, r) => s + entero(r.consignado), 0);
+  const ingresos = movimientos.filter(m => sinTildes(m.tipo) === 'ingreso' && enRango(m)).reduce((s, m) => s + entero(m.valor), 0);
+  const gastos = movimientos.filter(m => sinTildes(m.tipo) === 'gasto' && enRango(m)).reduce((s, m) => s + entero(m.valor), 0);
   return { base, inicial, consignado, ingresos, gastos, total: inicial + consignado + ingresos - gastos };
 }
 
-// Cuánta plata deben tener ellas: el efectivo que quedó en el último turno guardado
-function plataCaja() {
-  if (!resumenes.length) return { turno: null, valor: 0 };
-  let ultimo = resumenes[0];
-  resumenes.forEach(r => { if (r.fecha >= ultimo.fecha) ultimo = r; });
-  return { turno: ultimo, valor: Number(ultimo.efectivo_esperado) || 0 };
+// Efectivo que deja UN turno, calculado desde sus columnas (no desde efectivo_esperado).
+// Así, si se corrige a mano la base u otro valor en el Sheet, la app lo lee bien.
+function efectivoTurno(r) {
+  const n = c => entero(r[c]);
+  return n('total_ventas') + n('tiempos') + n('base') + n('abonos')
+       - n('compras') - n('pagos') - n('gastos') - n('vales') - n('consignado');
+}
+
+// Cuánta plata deben tener ellas: la SUMA del efectivo que dejó cada turno.
+// Funciona porque la base se pone solo cuando entra plata nueva (ej. el primer día),
+// y lo consignado ya viene restado en cada turno.
+// hasta: fecha opcional (AAAA-MM-DD) para sumar solo hasta ese día.
+// sinPlanilla: planilla_id opcional que NO se suma (la que se está llenando).
+function plataCaja(hasta = '', sinPlanilla = '') {
+  const lista = resumenes.filter(r => (!hasta || r.fecha <= hasta) && r.planilla_id !== sinPlanilla);
+  if (!lista.length) return { turno: null, valor: 0 };
+  let ultimo = lista[0];
+  lista.forEach(r => { if (r.fecha >= ultimo.fecha) ultimo = r; });
+  const valor = lista.reduce((s, r) => s + efectivoTurno(r), 0);
+  return { turno: ultimo, valor };
 }
 
 // Dibuja el cuadro "Mi plata"
